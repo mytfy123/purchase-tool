@@ -183,9 +183,36 @@ class ProductProcessor:
 
 
 # ===============================
-# Streamlit 界面
+# 生成商品数据表模板（提供下载）
 # ===============================
+@st.cache_data
+def generate_template():
+    # 定义列名
+    columns = ["名称", "条码", "规格", "主单位", "库存", "销量"]
+    # 创建一行示例数据
+    sample_row = ["示例商品A", "6901234567890", "-", "个", 10, 5]
+    df = pd.DataFrame([sample_row], columns=columns)
+    return df
 
+# 模板下载按钮放在侧边栏或顶部，这里放在侧边栏
+with st.sidebar:
+    st.markdown("### 📂 模板下载")
+    st.markdown("如果还没有商品数据表，可以下载模板：")
+    template_df = generate_template()
+    template_excel = io.BytesIO()
+    with pd.ExcelWriter(template_excel, engine='openpyxl') as writer:
+        template_df.to_excel(writer, index=False, sheet_name="商品数据模板")
+    template_excel.seek(0)
+    st.download_button(
+        label="📥 下载商品数据表模板(.xlsx)",
+        data=template_excel,
+        file_name="商品数据表模板.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+# ===============================
+# 主界面文件上传与计算
+# ===============================
 barcode_file = st.file_uploader("1️⃣ 上传组装拆分表 (Excel)", type=["xlsx", "xls"], key="barcode2")
 stock_file = st.file_uploader("2️⃣ 上传商品数据表 (Excel)", type=["xlsx", "xls"], key="stock2")
 
@@ -203,7 +230,7 @@ if barcode_file and stock_file:
                 st.subheader("分析结果预览")
                 st.dataframe(result_df)
 
-                # 下载按钮
+                # 下载结果按钮
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     result_df.to_excel(writer, index=False, sheet_name="分析结果")
