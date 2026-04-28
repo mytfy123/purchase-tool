@@ -9,7 +9,7 @@ warnings.filterwarnings("ignore")
 
 st.set_page_config(page_title="组装商品分析工具", layout="centered")
 st.title("📊 组装商品销量与库存分析")
-st.markdown("上传组装拆分表和商品数据表，自动计算每个组装商品的上下限。")
+st.markdown("上传组装拆分表和商品数据表，自动计算每个组装商品的上下限。**组装拆分直接银豹下载，商品资料需使用模板。**")
 
 # ===============================
 # 原有的 ProductProcessor 类（略作修改，支持从DataFrame读取）
