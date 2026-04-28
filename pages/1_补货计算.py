@@ -135,7 +135,7 @@ def process_files(purchase_file, barcode_file, product_file):
 # ===============================
 st.set_page_config(page_title="补货计算工具", layout="centered")
 st.title("📦 采购补货计算工具")
-st.markdown("请上传三个必需的 Excel 文件：**采购订单**、**组装拆分表**、**商品资料**")
+st.markdown("请上传三个必需的 Excel 文件：**采购订单**、**组装拆分表**、**商品资料** 三者均可以直接从银保下载上传")
 
 # 三个独立的上传组件
 purchase_file = st.file_uploader("1. 采购订单 (Excel)", type=["xlsx", "xls"], key="purchase")
