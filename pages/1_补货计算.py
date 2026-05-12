@@ -5,7 +5,7 @@ import io
 
 
 # ===============================
-# 你原来的所有函数（完全不用改）
+# 清洗工具函数（无需修改）
 # ===============================
 
 def clean_barcode(x):
@@ -18,6 +18,7 @@ def clean_barcode(x):
 
 
 def parse_spec(name):
+    """从商品名称中提取规格数（*后面的数字），无*则返回1"""
     if "*" not in name:
         return 1
     try:
@@ -27,32 +28,62 @@ def parse_spec(name):
 
 
 def is_combination(barcode, barcode_df):
+    """判断条码是否为组装商品"""
     return barcode in barcode_df["小件商品条码"].values
 
 
 def get_all_specs(product_name, product_df):
+    """获取同一品名下所有规格子商品"""
     base_name = re.split(r"\*", product_name)[0]
     return product_df[product_df["名称（必填）"].str.startswith(base_name)].copy()
 
 
+# ===============================
+# 修改后的核心计算函数（条件不变，补货量按上限和倍数计算）
+# ===============================
 def calculate_combination(spec_df):
+    """
+    计算组装商品的补货量。
+    返回：总库存, 是否需要补货, 最终补货数量
+    """
+    spec_df = spec_df.copy()
     spec_df["规格数"] = spec_df["名称（必填）"].apply(parse_spec)
     spec_df["库存量"] = spec_df["库存量"].fillna(0)
     spec_df["换算库存"] = spec_df["库存量"].astype(float) * spec_df["规格数"]
-    total_stock = int(spec_df["换算库存"].sum())
-    min_row = spec_df.loc[spec_df["规格数"].idxmin()]
-    min_stock = int(float(min_row.get("库存下限", 1)) or 1)
-    max_spec = int(spec_df["规格数"].max())
+
+    total_stock = int(spec_df["换算库存"].sum())            # 最小单位库存总量
+    max_spec = int(spec_df["规格数"].max())                 # 最大规格数
+
+    # --- 沿用原始判断逻辑：取最小规格那一行的“库存下限” ---
+    min_spec_row = spec_df.loc[spec_df["规格数"].idxmin()]
+    min_stock = int(float(min_spec_row.get("库存下限", 1)) or 1)   # 默认值为1
+
+    # --- 判断是否需要补货 ---
     if total_stock < min_stock:
-        return total_stock, "是", max_spec
+        need = "是"
+        # --- 补货数量基于“库存上限”计算 ---
+        upper_limit = spec_df.iloc[0].get("库存上限", 0)
+        try:
+            upper_limit = int(float(upper_limit))
+        except (ValueError, TypeError):
+            upper_limit = 0
+
+        if upper_limit > 0 and total_stock < upper_limit:
+            deficit = upper_limit - total_stock
+            # 向上取整为最大规格的倍数
+            replenish = ((deficit + max_spec - 1) // max_spec) * max_spec
+        else:
+            # 库存上限为空、为0或已达上限，尽管触发了补货条件，但无明确上限可参照
+            replenish = 0
+        return total_stock, need, replenish
     else:
         return total_stock, "否", 0
 
 
 def handle_normal_product(barcode, product_df):
+    """处理普通商品：返回库存量和分类"""
     match = product_df[product_df["匹配条码"] == barcode]
     if match.empty:
-        # 在 Web 上不打印，而是记录警告（可以用 st.warning，后面处理）
         return 0, ""
     stock_val = match.iloc[0]["库存量"]
     category = match.iloc[0]["分类（必填）"]
@@ -64,10 +95,9 @@ def handle_normal_product(barcode, product_df):
 
 
 # ===============================
-# 主处理函数（接收上传的文件对象，返回结果 DataFrame）
+# 主处理流程
 # ===============================
 def process_files(purchase_file, barcode_file, product_file):
-    # 读取上传的 Excel 文件（都是 BytesIO 对象）
     purchase_df = pd.read_excel(purchase_file)
     barcode_df = pd.read_excel(barcode_file)
     product_df = pd.read_excel(product_file)
@@ -81,7 +111,6 @@ def process_files(purchase_file, barcode_file, product_file):
     product_df.loc[product_df["匹配条码"] == "", "匹配条码"] = product_df["条码"]
 
     results = []
-    # 用于收集未匹配条码的警告（避免在循环里直接 st.warning 重复弹窗）
     unmatched_barcodes = []
 
     for _, row in purchase_df.iterrows():
@@ -93,7 +122,6 @@ def process_files(purchase_file, barcode_file, product_file):
         if is_combination(barcode, barcode_df):
             spec_df = get_all_specs(product_name, product_df)
             if spec_df.empty:
-                # 组装商品找不到对应规格，记录警告
                 unmatched_barcodes.append(f"组装商品「{product_name}」未找到规格子商品")
                 continue
             total_stock, need, qty = calculate_combination(spec_df)
@@ -121,13 +149,11 @@ def process_files(purchase_file, barcode_file, product_file):
             }
         results.append(result)
 
-    # 将未匹配警告显示在 Streamlit 上
     if unmatched_barcodes:
         for warn in unmatched_barcodes:
             st.warning(warn)
 
-    result_df = pd.DataFrame(results)
-    return result_df
+    return pd.DataFrame(results)
 
 
 # ===============================
@@ -135,26 +161,22 @@ def process_files(purchase_file, barcode_file, product_file):
 # ===============================
 st.set_page_config(page_title="补货计算工具", layout="centered")
 st.title("📦 采购补货计算工具")
-st.markdown("请上传三个必需的 Excel 文件：**采购订单**、**组装拆分表**、**商品资料** 三者均可以直接从银保下载上传")
+st.markdown("请上传三个必需的 Excel 文件：**采购订单**、**组装拆分表**、**商品资料**")
 
-# 三个独立的上传组件
 purchase_file = st.file_uploader("1. 采购订单 (Excel)", type=["xlsx", "xls"], key="purchase")
 barcode_file = st.file_uploader("2. 组装拆分表 (Excel)", type=["xlsx", "xls"], key="barcode")
 product_file = st.file_uploader("3. 商品资料 (Excel)", type=["xlsx", "xls"], key="product")
 
-# 当三个文件都上传后，显示“开始计算”按钮
 if purchase_file and barcode_file and product_file:
     if st.button("🚀 开始计算补货结果"):
         with st.spinner("正在处理，请稍候..."):
             try:
                 result_df = process_files(purchase_file, barcode_file, product_file)
                 st.success("计算完成！")
-
-                # 显示结果表格
                 st.subheader("补货结果预览")
                 st.dataframe(result_df)
 
-                # 提供下载按钮
+                # 提供下载
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     result_df.to_excel(writer, index=False, sheet_name="补货结果")
